@@ -21,7 +21,7 @@
 
 Data sources are downloaded in one of two ways. The first, and simplest, is to add a section in the config TOML file. **The TOML files are the master config files of the database and API services and the default files can be downloaded from here**: [https://cloud.uni-hamburg.de/s/zBT3j8Srn6pJXHc](https://cloud.uni-hamburg.de/s/zBT3j8Srn6pJXHc)
 
-The simplest example of this is given below but you will see many more in the .toml files:
+The simplest example of this is given below but you will see many more in the .toml files (create config via editing config_template.toml in a text editor):
 
 
 ```toml
