@@ -41,7 +41,8 @@ from nedrexdb.db.parsers import (
     intogen,
     orphanet,
     opentargets,
-    hippie
+    hippie,
+    faers
 )
 from nedrexdb.downloaders import get_versions, update_versions
 from nedrexdb.post_integration import (trim_uberon, drop_empty_collections)
@@ -322,6 +323,9 @@ def run_parsers(version, ignored_sources, hippie_method_scores=None):
     if "sider" not in ignored_sources:
         sider.parse()
 
+    if "faers" not in ignored_sources:
+        faers.parse_faers()
+
     if "uniprot" not in ignored_sources:
         uniprot.parse_idmap()
 
@@ -349,7 +353,7 @@ def save_fallback_version(version, fallback_path="/data/nedrex_files/nedrex_data
 
 def parse_dev(version, download, rebuild, version_update, prev_metadata,
               distinct_per_collection, dev_instance, create_embeddings):
-    # control source downloads
+    # control source downloads - but be aware of dependencies!
     ignored_sources = {"chembl",
                        "biogrid",
                        "go",
@@ -359,24 +363,25 @@ def parse_dev(version, download, rebuild, version_update, prev_metadata,
                        "hpa",
                        "uniprot",
                        "reactome",
-                       "bioontology",
-                       "drug_central",
-                       "unichem",
+                       #"bioontology",
+                       #"drug_central",
+                       #"unichem",
                        "repotrial",
                        "iid",
                        "intact",
-                        "omim",
+                       "omim",
                        "ncg",
                        "intogen",
                        "opentargets",
                        "orphanet",
                        #"ncbi",
-                       "drugbank", #temp
+                       #"drugbank",
                        "ctd",
                        "disgenet",
                        "hippie",
-                       "sider",
+                       #"sider",
                        "cosmic",
+                       "faers"
                        }
     nedrex_versions = None
     no_download = None

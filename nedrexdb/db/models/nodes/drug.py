@@ -27,6 +27,7 @@ class Drug(_BaseModel, DrugBase):
 
     displayName: _StrictStr = ""
     synonyms: list[str] = _Field(default_factory=list)
+    rxnormNames: list[str] = _Field(default_factory=list)
     description: _StrictStr = ""
 
     drugCategories: list[str] = _Field(default_factory=list)

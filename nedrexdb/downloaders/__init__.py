@@ -22,6 +22,7 @@ from nedrexdb.downloaders.ncg import download_ncg as _download_ncg
 from nedrexdb.downloaders.intogen import download_intogen as _download_intogen
 from nedrexdb.downloaders.orphanet import download_orphanet as _download_orphanet
 from nedrexdb.downloaders.opentargets import download_opentargets as _download_opentargets
+from nedrexdb.downloaders.rxnorm import download_rxnorm as _download_rxnorm
 from nedrexdb.exceptions import (
     ProcessError as _ProcessError,
 )
@@ -110,6 +111,11 @@ def download_all(force=False, ignored_sources=set(), no_download_meta={}):
             _download_biogrid()
         else:
             logger.debug("biogrid is already up-to-date")
+    if "rxnorm" not in ignored_sources:
+        if "rxnorm" not in no_download_meta:
+            _download_rxnorm()
+        else:
+            logger.debug("rxnorm is already up-to-date")
 
     for source in filter(lambda i: i not in exclude_keys, sources):
 
@@ -122,7 +128,8 @@ def download_all(force=False, ignored_sources=set(), no_download_meta={}):
             "cosmic",
             "intogen",
             "hippie",
-            "sider"
+            "sider",
+            "rxnorm"
         }:
             continue
 
