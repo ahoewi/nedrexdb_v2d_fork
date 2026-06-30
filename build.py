@@ -118,6 +118,7 @@ def _prepare_dev_environment(embedding_controller):
     embedding_controller.prepare_reusable_embeddings()
 
     # prepare neo4j for import from mongoDB
+    embedding_controller.dev_instance.remove(neo4j_mode="import")
     embedding_controller.dev_instance.set_up(use_existing_volume=False, neo4j_mode="import")
 
     # MongoDB data download & import
@@ -145,6 +146,10 @@ def _ingest_data(version, nedrex_versions, ignored_sources):
 def _post_process_data(dev_instance):
     # clean up for export
     drop_empty_collections.drop_empty_collections()
+
+    # prepare neo4j for import from mongoDB
+    dev_instance._remove_neo4j(remove_db_volume=True, neo4j_mode="import")
+    dev_instance._set_up_neo4j(use_existing_volume=False, neo4j_mode="import")
 
     # export to Neo4j
     mongo_to_neo.mongo_to_neo(dev_instance, MongoInstance.DB)
@@ -414,6 +419,7 @@ def parse_dev(version, download, rebuild, version_update, prev_metadata,
                                                            rebuild=rebuild)
 
     # prepare neo4j for import from mongoDB
+    dev_instance.remove(neo4j_mode="import")
     dev_instance.set_up(use_existing_volume=False, neo4j_mode="import")
 
     # MongoDB data download & import
@@ -435,6 +441,32 @@ def parse_dev(version, download, rebuild, version_update, prev_metadata,
             MongoInstance.DB[col].drop()
 
     return embeddings, tobuild_embeddings, no_download, current_metadata
+
+
+@click.option("--conf", required=True, type=click.Path(exists=True))
+@cli.command()
+def embed_only(conf):
+    logger.info("Creating embeddings only")
+    logger.debug(f"Config file: {conf}")
+    nedrexdb.parse_config(conf)
+    live_instance = NeDRexLiveInstance()
+    live_instance.remove()
+    live_instance.set_up(use_existing_volume=True, neo4j_mode="db-write")
+
+    time.sleep(60)
+    create_constraints()
+
+
+    # create embeddings
+    # try:
+    create_vector_indices()
+    # except Exception as e:
+    #     print(e)
+    #     logger.warning("Failed to create vector indices")
+
+    live_instance = NeDRexLiveInstance()
+    live_instance.remove()
+    live_instance.set_up(use_existing_volume=True, neo4j_mode="db")
 
 
 @click.option("--conf", required=True, type=click.Path(exists=True))

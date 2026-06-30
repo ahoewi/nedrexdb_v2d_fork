@@ -122,7 +122,7 @@ def mongo_to_neo(nedrex_instance, db):
     #    f"/var/lib/neo4j/plugins /app'")
     _subprocess.call([
         "docker", "exec", nedrex_instance.neo4j_container_name,
-        "chown", "-R", "neo4j:neo4j", "/data", "/import", "/logs", "/var/lib/neo4j/plugins", "/app"
+        "chown", "-R", "neo4j:neo4j", "/data", "/logs", "/var/lib/neo4j/plugins", "/app"
     ])
     _time.sleep(30)
     command = [

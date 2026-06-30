@@ -28,6 +28,15 @@ def get_kg_connection() -> Neo4jGraph:
             retry -= 1
             if retry == 0:
                 logger.error(f"Failed to connect to Neo4j at {NEO4J_URI} after {10} retries!")
+                try:
+                    import docker as _docker
+                    client = _docker.from_env()
+                    container = client.containers.get(_config["db.dev.neo4j_name"])
+                    logger.error(f"Neo4j container status: {container.status}")
+                    logger.error("Last 20 lines of container logs:")
+                    logger.error(container.logs(tail=20).decode('utf-8'))
+                except Exception as docker_err:
+                    logger.error(f"Could not retrieve container status/logs: {docker_err}")
                 return None
         time.sleep(30)
 
@@ -54,13 +63,21 @@ def create_constraints():
 
     logger.info("Creating unique constraints for IDs")
     kg = get_kg_connection()
+    if kg is None:
+        raise RuntimeError(f"Could not connect to Neo4j at bolt://{_config['db.dev.neo4j_name']}:7687 to create unique constraints.")
 
     # fetch existing constraints once
     existing = kg.query("""
         SHOW CONSTRAINTS YIELD labelsOrTypes, properties
         RETURN labelsOrTypes AS labels, properties
     """)
-    existing_set = {(tuple(e["labels"]), tuple(e["properties"])) for e in existing}
+    existing_set = {
+        (
+            tuple(e["labels"]) if e["labels"] is not None else (),
+            tuple(e["properties"]) if e["properties"] is not None else ()
+        )
+        for e in existing
+    }
     logger.debug(f"Found existing constraints (next line): \n{existing_set}")
 
     results = kg.query("CALL db.labels()")
@@ -94,6 +111,8 @@ def create_vector_indices(tobuild=set()):
     logger.info("Starting indexing")
 
     kg = get_kg_connection()
+    if kg is None:
+        raise RuntimeError(f"Could not connect to Neo4j at bolt://{_config['db.dev.neo4j_name']}:7687 to create vector indices.")
 
     index_names = []
 
@@ -150,7 +169,7 @@ def get_node_info_string(node_name, node_embedding_config):
         str: A Cypher string for concatenating node properties.
     """
     config = node_embedding_config.get(node_name, {})
-    parts = ["coalesce(x.type, '') + ' with ID ' + x.primaryDomainId + ':'"]
+    parts = ["coalesce(x.type, '') + ' with ID ' + coalesce(x.primaryDomainId, '') + ':'"]
 
     for attribute, format_config in config.items():
         prefix = format_config.get('prefix', ' ')
@@ -160,7 +179,7 @@ def get_node_info_string(node_name, node_embedding_config):
         if attribute_type == "list":
             part = f"'{prefix}' + coalesce(apoc.text.join(x.{attribute}, ', '), '') + '{suffix};'"
         else:
-            part = f"'{prefix}' + coalesce(x.{attribute}, '') + '{suffix};'"
+            part = f"'{prefix}' + coalesce(toString(x.{attribute}), '') + '{suffix};'"
         parts.append(part)
 
     return " + ".join(parts)
@@ -180,7 +199,7 @@ def get_edge_info_string(edge_name, edge_embedding_config):
     config = edge_embedding_config.get(edge_name, {})
     link_term = config.get("link_term", "is connected to")
 
-    base_info = f"coalesce(entry.s.type, '') + ' ' + coalesce(entry.s.displayName, '') + ' with ID ' + entry.s.primaryDomainId + ' {link_term} ' + coalesce(entry.t.type, '') + ' ' + coalesce(entry.t.displayName, '') + ' with ID ' + entry.t.primaryDomainId"
+    base_info = f"coalesce(entry.s.type, '') + ' ' + coalesce(entry.s.displayName, '') + ' with ID ' + coalesce(entry.s.primaryDomainId, '') + ' {link_term} ' + coalesce(entry.t.type, '') + ' ' + coalesce(entry.t.displayName, '') + ' with ID ' + coalesce(entry.t.primaryDomainId, '')"
     parts = [base_info]
 
     if "attributes" in config:
@@ -193,36 +212,65 @@ def get_edge_info_string(edge_name, edge_embedding_config):
             if attribute_type == "list":
                 part = f"'{prefix}' + coalesce(apoc.text.join(entry.r.{attribute}, ', '), '') + '{suffix};'"
             else:
-                part = f"'{prefix}' + coalesce(entry.r.{attribute}, '') + '{suffix};'"
+                part = f"'{prefix}' + coalesce(toString(entry.r.{attribute}), '') + '{suffix};'"
             parts.append(part)
 
     return " + ".join(parts)
 
 def fill_vector_index(con, entityType, name) -> bool:
-    retries = 5
     try:
         start = time.time()
-        from nedrexdb.llm import (_LLM_API_KEY, _LLM_BASE, _LLM_path, _LLM_model, _LLM_embedding_length)
+        from nedrexdb.llm import (_LLM_API_KEY, _LLM_BASE, _LLM_path, _LLM_model, _LLM_embedding_length, _LLM_parallel)
         create_vector_index(con, entityType, name,_LLM_embedding_length)
         params = {"api_key": _LLM_API_KEY, "llm_base": _LLM_BASE, "llm_path": _LLM_path, "llm_model": _LLM_model}
         info_string = get_info_string(entityType, name, NODE_EMBEDDING_CONFIG, EDGE_EMBEDDING_CONFIG)
         if entityType == "NODE":
-            query = create_node_vector_query(info_string, name)
+            query = create_node_vector_query(info_string, name, _LLM_parallel)
         else:
             source_name = EDGE_EMBEDDING_CONFIG[name]["source"]
             target_name = EDGE_EMBEDDING_CONFIG[name]["target"]
-            query = create_edge_vector_query(info_string, source_name, name, target_name)
-        while retries > 0:
-            retries -= 1
-            try:
-                con.query(query, params=params)
+            query = create_edge_vector_query(info_string, source_name, name, target_name, _LLM_parallel)
+        
+        MAX_STALL_ATTEMPTS = 3
+        prev_remaining = None
+        stall_count = 0
+
+        while True:
+            if entityType == "NODE":
+                count_query = f"MATCH (x:{name}) WHERE x.embedding IS NULL RETURN count(x) AS count"
+            else:
+                count_query = f"MATCH ()-[r:{name}]->() WHERE r.embedding IS NULL RETURN count(r) AS count"
+
+            res = con.query(count_query)
+            remaining = res[0]["count"] if res else 0
+            if remaining == 0:
                 break
-            except Exception as e:
-                print(e)
-                logger.error(f"Encountered an issue! Retry {6 - retries} retrying in 60s...")
-                if retries == 0:
-                    raise e
-                time.sleep(60)
+
+            logger.info(f"Remaining {name} elements to embed: {remaining}")
+
+            if remaining == prev_remaining:
+                stall_count += 1
+                if stall_count >= MAX_STALL_ATTEMPTS:
+                    raise RuntimeError(
+                        f"Embedding stalled: {name} count stuck at {remaining} after "
+                        f"{stall_count} consecutive no-progress iterations"
+                    )
+            else:
+                stall_count = 0
+            prev_remaining = remaining
+
+            retries = 5
+            while retries > 0:
+                retries -= 1
+                try:
+                    con.query(query, params=params)
+                    break
+                except Exception as e:
+                    print(e)
+                    logger.error(f"Encountered an issue! Retry {6 - retries} retrying in 60s...")
+                    if retries == 0:
+                        raise e
+                    time.sleep(60)
         duration = time.time() - start
         logger.info(f"Building {name} embedding indexes finished after {duration} seconds")
         return True
@@ -253,62 +301,60 @@ def get_info_string(element_type, name, node_config, edge_config):
     else:
         raise ValueError(f"Unknown element_type: {element_type}. Must be 'NODE' or 'EDGE'.")
 
-def create_node_vector_query(node_info_string, name):
-    escaped_node_info_string = node_info_string.replace("'", "\\'")
+def create_node_vector_query(node_info_string, name, parallel=False):
     query = f"""
-    CALL apoc.periodic.iterate(
-    'MATCH (n:{name}) WHERE n.embedding IS NULL
-     WITH id(n) AS id
-     WITH collect(id) AS ids
-     UNWIND range(0, size(ids) - 1, 100) AS i
-     RETURN ids[i..i+100] AS id_batch',
-        'UNWIND id_batch AS id
-        MATCH (n:{name}) WHERE id(n) = id
-        WITH collect(n) AS batchNodes
-         CALL apoc.ml.openai.embedding(
-             [x IN batchNodes | {escaped_node_info_string}],
-             $api_key,
-             {{
-                 endpoint: $llm_base,
-                 path: $llm_path,
-                 model: $llm_model,
-                 enableBackOffRetries: true,
-                 backOffRetries: 20,
-                 exponentialBackoff: true
-             }}
-         ) YIELD index, embedding
-         WITH batchNodes[index] as node, embedding
-         CALL db.create.setNodeVectorProperty(node, "embedding", embedding) 
-         RETURN count(*)',
-        {{
-            batchSize: 10,
-            parallel: false,
-            params: {{
-                api_key: $api_key,
-                llm_base: $llm_base,
-                llm_path: $llm_path,
-                llm_model: $llm_model
-            }}
-        }}
-    )
+    MATCH (x:{name}) WHERE x.embedding IS NULL
+    WITH x LIMIT 50000
+    WITH id(x) AS id
+    WITH collect(id) AS ids
+    UNWIND range(0, size(ids) - 1, 100) AS i
+    WITH ids[i..i+100] AS id_batch
+    CALL {{
+         WITH id_batch
+         UNWIND id_batch AS id
+         MATCH (x:{name}) WHERE id(x) = id
+         WITH x, {node_info_string} AS text
+         WITH x, CASE WHEN text IS NULL OR trim(text) = "" THEN "unknown" ELSE trim(text) END AS final_text
+         WITH collect(x) AS batchNodes, collect(final_text) AS batchTexts
+         WHERE size(batchTexts) > 0
+          CALL apoc.ml.openai.embedding(
+              batchTexts,
+              $api_key,
+              {{
+                  endpoint: $llm_base,
+                  path: $llm_path,
+                  model: $llm_model,
+                  enableBackOffRetries: true,
+                  backOffRetries: 20,
+                  exponentialBackoff: true
+              }}
+          ) YIELD index, embedding
+          WITH batchNodes[index] as node, embedding
+          CALL db.create.setNodeVectorProperty(node, "embedding", embedding)
+    }} IN TRANSACTIONS OF 10 ROWS
     """
     return query
 
 
-def create_edge_vector_query(edge_info_string, source_name, name, target_name):
-    escaped_node_info_string = edge_info_string.replace("'", "\\'")
+def create_edge_vector_query(edge_info_string, source_name, name, target_name, parallel=False):
     query = f"""
-      CALL apoc.periodic.iterate(
-          'MATCH (s:{source_name})-[r:{name}]-(t:{target_name}) WHERE r.embedding IS NULL
-           WITH id(r) AS id
-           WITH collect(id) AS ids
-           UNWIND range(0, size(ids) - 1, 100) AS i
-           RETURN ids[i..i+100] AS id_batch',
-           'UNWIND id_batch AS id
-           MATCH (s:{source_name})-[r:{name}]-(t:{target_name}) WHERE id(r) = id
-           WITH collect({{s:s, r:r, t:t}}) AS batchEntries
+      MATCH ()-[r:{name}]->() WHERE r.embedding IS NULL
+      WITH r LIMIT 50000
+      WITH id(r) AS id
+      WITH collect(id) AS ids
+      UNWIND range(0, size(ids) - 1, 100) AS i
+      WITH ids[i..i+100] AS id_batch
+      CALL {{
+           WITH id_batch
+           UNWIND id_batch AS id
+           MATCH (s:{source_name})-[r:{name}]->(t:{target_name}) WHERE id(r) = id
+           WITH r, {{s: s, r: r, t: t}} AS entry
+           WITH r, {edge_info_string} AS text
+           WITH r, CASE WHEN text IS NULL OR trim(text) = "" THEN "unknown" ELSE trim(text) END AS final_text
+           WITH collect(r) AS batchRelationships, collect(final_text) AS batchTexts
+           WHERE size(batchTexts) > 0
           CALL apoc.ml.openai.embedding(
-              [entry in batchEntries | {escaped_node_info_string}], 
+              batchTexts, 
               $api_key, 
               {{
                   endpoint: $llm_base,
@@ -319,20 +365,9 @@ def create_edge_vector_query(edge_info_string, source_name, name, target_name):
                   exponentialBackoff: true
               }}
           ) YIELD index, embedding
-          WITH batchEntries[index] as entry, embedding 
-          CALL db.create.setRelationshipVectorProperty(entry.r, "embedding", embedding)
-          RETURN count(*)',
-          {{
-            batchSize: 10,
-            parallel: false,
-            params: {{
-                api_key: $api_key,
-                llm_base: $llm_base,
-                llm_path: $llm_path,
-                llm_model: $llm_model
-            }}
-          }}
-      )
+          WITH batchRelationships[index] as rel, embedding 
+          CALL db.create.setRelationshipVectorProperty(rel, "embedding", embedding)
+      }} IN TRANSACTIONS OF 10 ROWS
     """
     return query
 

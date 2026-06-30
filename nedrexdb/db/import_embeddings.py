@@ -1,5 +1,5 @@
 from langchain_neo4j import Neo4jGraph
-from neo4j.exceptions import Neo4jError
+from neo4j.exceptions import Neo4jError, DatabaseUnavailable, ServiceUnavailable, TransientError
 from nedrexdb import config as _config
 from nedrexdb.post_integration.neo4j_db_adjustments import create_vector_index
 from nedrexdb.post_integration.embedding_config import NODE_EMBEDDING_CONFIG, EDGE_EMBEDDING_CONFIG
@@ -126,10 +126,12 @@ def upsert_embeddings(embeddings):
             )
         elif name in edge_keys.keys():
             create_vector_index(session, "RELATIONSHIP", edge_keys[name])
+            source_label = EDGE_EMBEDDING_CONFIG[edge_keys[name]]["source"]
+            target_label = EDGE_EMBEDDING_CONFIG[edge_keys[name]]["target"]
             query = f"""
                 UNWIND $edges AS edge
-                MATCH (src {{ primaryDomainId: edge.src_id }})
-                MATCH (dst {{ primaryDomainId: edge.dst_id }})
+                MATCH (src:{source_label} {{ primaryDomainId: edge.src_id }})
+                MATCH (dst:{target_label} {{ primaryDomainId: edge.dst_id }})
                 MERGE (src)-[r:{edge_keys[name]}]->(dst)
                 SET r.embedding = edge.embedding
                 """

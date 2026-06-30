@@ -10,14 +10,19 @@ RUN apt-get update && apt-get dist-upgrade -y && apt-get install -y supervisor l
 RUN apt-get update && apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release software-properties-common cron unzip
 RUN apt-get autoclean -y && apt-get autoremove -y && apt-get clean -y
 
-RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+RUN install -m 0755 -d /etc/apt/keyrings \
+ && curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+    | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+ && chmod a+r /etc/apt/keyrings/docker.gpg
 
-RUN add-apt-repository \
-   "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
-   lunar \
-   stable"
+RUN echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+   https://download.docker.com/linux/ubuntu \
+   $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+  | tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-RUN apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io
+RUN apt-get update && apt-get install -y \
+    docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 ENV CONDA_DIR /opt/conda
 RUN wget "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"

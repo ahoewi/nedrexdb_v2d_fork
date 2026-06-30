@@ -1,0 +1,86 @@
+# Snyk (https://snyk.io) policy file
+# These vulnerabilities are embedded in Docker CE binaries (docker-ce-cli, containerd.io)
+# installed from the official Docker apt repository. They exist in Docker's internal
+# Go standard library dependencies (x/crypto, x/net, opentelemetry) compiled into the
+# Docker daemon/client binaries. The application does not expose SSH endpoints, HTTP/2
+# servers, or OpenTelemetry exporters from within this image — the Docker socket is
+# mounted from the host. Re-check when Docker releases packages compiled against
+# x/crypto>=0.52.0 and x/net>=0.54.0.
+version: v1.25.0
+ignore:
+  SNYK-GOLANG-GOLANGORGXCRYPTOSSH-16795338:
+  - '*':
+      reason: Embedded in Docker CE binaries; application does not expose SSH. Re-evaluate when Docker ships x/crypto>=0.52.0.
+      expires: 2026-12-31T00:00:00.000Z
+      created: 2026-06-04T00:00:00.000Z
+  SNYK-GOLANG-GOLANGORGXCRYPTOSSH-16795340:
+  - '*':
+      reason: Embedded in Docker CE binaries; application does not expose SSH. Re-evaluate when Docker ships x/crypto>=0.52.0.
+      expires: 2026-12-31T00:00:00.000Z
+      created: 2026-06-04T00:00:00.000Z
+  SNYK-GOLANG-GOLANGORGXCRYPTOSSH-16796305:
+  - '*':
+      reason: Embedded in Docker CE binaries; application does not expose SSH. Re-evaluate when Docker ships x/crypto>=0.52.0.
+      expires: 2026-12-31T00:00:00.000Z
+      created: 2026-06-04T00:00:00.000Z
+  SNYK-GOLANG-GOLANGORGXCRYPTOSSH-16796309:
+  - '*':
+      reason: Embedded in Docker CE binaries; application does not expose SSH. Re-evaluate when Docker ships x/crypto>=0.52.0.
+      expires: 2026-12-31T00:00:00.000Z
+      created: 2026-06-04T00:00:00.000Z
+  SNYK-GOLANG-GOLANGORGXCRYPTOSSH-16796316:
+  - '*':
+      reason: Embedded in Docker CE binaries; application does not expose SSH. Re-evaluate when Docker ships x/crypto>=0.52.0.
+      expires: 2026-12-31T00:00:00.000Z
+      created: 2026-06-04T00:00:00.000Z
+  SNYK-GOLANG-GOLANGORGXCRYPTOSSH-16795342:
+  - '*':
+      reason: Embedded in Docker CE binaries; application does not expose SSH. Re-evaluate when Docker ships x/crypto>=0.52.0.
+      expires: 2026-12-31T00:00:00.000Z
+      created: 2026-06-04T00:00:00.000Z
+  SNYK-GOLANG-GOLANGORGXCRYPTOSSH-16795344:
+  - '*':
+      reason: Embedded in Docker CE binaries; application does not expose SSH. Re-evaluate when Docker ships x/crypto>=0.52.0.
+      expires: 2026-12-31T00:00:00.000Z
+      created: 2026-06-04T00:00:00.000Z
+  SNYK-GOLANG-GOLANGORGXCRYPTOSSH-16796326:
+  - '*':
+      reason: Embedded in Docker CE binaries; application does not expose SSH. Re-evaluate when Docker ships x/crypto>=0.52.0.
+      expires: 2026-12-31T00:00:00.000Z
+      created: 2026-06-04T00:00:00.000Z
+  SNYK-GOLANG-GOLANGORGXCRYPTOSSH-16796332:
+  - '*':
+      reason: Embedded in Docker CE binaries; application does not expose SSH. Re-evaluate when Docker ships x/crypto>=0.52.0.
+      expires: 2026-12-31T00:00:00.000Z
+      created: 2026-06-04T00:00:00.000Z
+  SNYK-GOLANG-GOLANGORGXNETHTTP2-16535157:
+  - '*':
+      reason: Embedded in Docker CE binaries; no HTTP/2 server exposed by this image. Re-evaluate when Docker ships x/net>=0.53.0.
+      expires: 2026-12-31T00:00:00.000Z
+      created: 2026-06-04T00:00:00.000Z
+  SNYK-GOLANG-GOLANGORGXNETIDNA-17116876:
+  - '*':
+      reason: Embedded in Docker CE binaries. Re-evaluate when Docker ships x/net>=0.54.0.
+      expires: 2026-12-31T00:00:00.000Z
+      created: 2026-06-04T00:00:00.000Z
+  SNYK-GOLANG-GOOPENTELEMETRYIOOTELPROPAGATION-17054905:
+  - '*':
+      reason: Embedded in Docker CE / containerd binaries; no OTel propagation endpoint exposed. Re-evaluate when Docker ships otel>=1.44.0.
+      expires: 2026-12-31T00:00:00.000Z
+      created: 2026-06-04T00:00:00.000Z
+  SNYK-GOLANG-GOOPENTELEMETRYIOOTELBAGGAGE-17054906:
+  - '*':
+      reason: Embedded in Docker CE / containerd binaries; no OTel baggage endpoint exposed. Re-evaluate when Docker ships otel>=1.44.0.
+      expires: 2026-12-31T00:00:00.000Z
+      created: 2026-06-04T00:00:00.000Z
+  SNYK-GOLANG-GOOPENTELEMETRYIOOTELEXPORTERSOTLPOTLPTRACEOTLPTRACEHTTP-15954196:
+  - '*':
+      reason: Embedded in Docker CE / containerd binaries; no OTLP trace endpoint exposed. Re-evaluate when Docker ships otel>=1.43.0.
+      expires: 2026-12-31T00:00:00.000Z
+      created: 2026-06-04T00:00:00.000Z
+  SNYK-GOLANG-GOOPENTELEMETRYIOOTELEXPORTERSOTLPOTLPMETRICOTLPMETRICHTTP-15954197:
+  - '*':
+      reason: Embedded in Docker CE / containerd binaries; no OTLP metric endpoint exposed. Re-evaluate when Docker ships otel>=1.43.0.
+      expires: 2026-12-31T00:00:00.000Z
+      created: 2026-06-04T00:00:00.000Z
+patch: {}

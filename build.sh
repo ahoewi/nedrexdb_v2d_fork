@@ -1,14 +1,34 @@
 #!/bin/bash
 
+# Save environment variables for cron jobs
+declare -x > /app/nedrexdb/container_env.sh
+
 setup_db() {
     local db_type=$1
     local config_file=".$db_type"_config.toml
+    local lock_file="/tmp/nedrexdb_build_${db_type}.lock"
+
+    if [ -f "$lock_file" ]; then
+        local existing_pid
+        existing_pid=$(cat "$lock_file" 2>/dev/null)
+        if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
+            echo "$(date '+%Y-%m-%d %H:%M:%S') | WARNING |  build.sh - ${db_type} build already in progress (PID $existing_pid), skipping."
+            return 1
+        fi
+        echo "$(date '+%Y-%m-%d %H:%M:%S') | WARNING |  build.sh - Removing stale lock for ${db_type} (PID $existing_pid no longer running)"
+    fi
+    echo $$ > "$lock_file"
+    trap "rm -f $lock_file" EXIT
 
     if [[ "$LOG_LEVEL" == "INFO" || "$LOG_LEVEL" == "DEBUG" ]]; then echo "$(date '+%Y-%m-%d %H:%M:%S') | INFO |  build.sh - Starting setup of $db_type DB"; fi
 
     # Handle DB updates
     if [[ "$SKIP_UPDATE" == "1" ]]; then
-       ./build.py restart-live --conf "$config_file"
+        if [[ "$CREATE_EMBEDDINGS" == "1" ]]; then
+          ./build.py embed-only --conf "$config_file"
+        else
+          ./build.py restart-live --conf "$config_file"
+        fi
     else
         local build_args=(update --conf "$config_file")
 

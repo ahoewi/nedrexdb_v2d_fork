@@ -3,7 +3,7 @@ import re as _re
 import shutil as _shutil
 import subprocess as _subprocess
 from pathlib import Path as _Path
-from urllib.request import urlretrieve as _urlretrieve
+import urllib.request
 
 import requests  # type: ignore
 from bs4 import BeautifulSoup
@@ -50,8 +50,12 @@ def download_biogrid():
         #       (because iterdir() will delete it).
         if _os.path.isfile(target_fname):
             _os.remove(target_fname)
+        opener = urllib.request.build_opener()
+        # Add a browser-like User-Agent
+        opener.addheaders = [('User-agent', 'Mozilla/5.0')]
+        urllib.request.install_opener(opener)
 
-        _urlretrieve(url, zip_fname)
+        urllib.request.urlretrieve(url, zip_fname)
         _subprocess.call(
             ["unzip", zip_fname],
             stdout=_subprocess.DEVNULL,

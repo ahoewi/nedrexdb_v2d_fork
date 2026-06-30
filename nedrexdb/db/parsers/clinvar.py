@@ -254,21 +254,22 @@ def parse():
         _chunked(updates, 10_000), desc="Parsing ClinVar genomic variant-disorder relationships", leave=False
     ):
         MongoInstance.DB[VariantAssociatedWithDisorder.collection_name].bulk_write(chunk)
-        db = MongoInstance.DB
-        coll = VariantAssociatedWithDisorder.collection_name
-        doc_count = db[coll].count_documents({})
-        sample_doc = db[coll].find_one()
 
-        if sample_doc:
-            attr_counts = {attr: db[coll].count_documents({attr: {"$exists": True}})
-                           for attr in sample_doc.keys()}
-            db["_collections"].replace_one(
-                {"collection": coll},
-                {
-                    "collection": coll,
-                    "document_count": doc_count,
-                    "unique_attributes": list(attr_counts.keys()),
-                    "attribute_counts": attr_counts
-                },
-                upsert=True
-            )
+    db = MongoInstance.DB
+    coll = VariantAssociatedWithDisorder.collection_name
+    doc_count = db[coll].count_documents({})
+    sample_doc = db[coll].find_one()
+
+    if sample_doc:
+        attr_counts = {attr: db[coll].count_documents({attr: {"$exists": True}})
+                       for attr in sample_doc.keys()}
+        db["_collections"].replace_one(
+            {"collection": coll},
+            {
+                "collection": coll,
+                "document_count": doc_count,
+                "unique_attributes": list(attr_counts.keys()),
+                "attribute_counts": attr_counts
+            },
+            upsert=True
+        )
