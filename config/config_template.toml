@@ -269,6 +269,8 @@ version_pattern = '''>Homo_sapiens\.gene_info\.gz</a>      [\d-]+'''
 [sources.ncbi.gene_info]
 url = "https://ftp.ncbi.nih.gov/gene/DATA/GENE_INFO/Mammalia/Homo_sapiens.gene_info.gz"
 
+[sources.ncbi.gene_summary]
+url = "https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_summary.gz"
 
 [sources.ncg]
 [sources.ncg.annotation]
