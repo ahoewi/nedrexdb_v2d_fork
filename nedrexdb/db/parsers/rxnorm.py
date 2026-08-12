@@ -7,6 +7,11 @@ from tqdm import tqdm
 from nedrexdb.db import MongoInstance
 from nedrexdb.db.parsers import _get_file_location_factory
 from nedrexdb.db.models.nodes.drug import Drug
+from nedrexdb.logger import logger
+from pathlib import PurePosixPath
+from urllib.parse import parse_qs, urlparse
+from io import TextIOWrapper
+from zipfile import ZipFile
 
 get_file_location = _get_file_location_factory("rxnorm")
 
@@ -20,9 +25,17 @@ MATCH_TTYS = {
 
 
 def parse_rxnorm():
-    filename = get_file_location("rrf")
+    filename = get_file_location("full")
 
-    print("Parsing RxNorm...")
+    # Remove "&apiKey={}" suffix if present
+    filename = filename.with_name(filename.name.split("&")[0])
+
+    logger.debug(f"RxNorm filename: {filename}")
+    logger.info("Parsing RxNorm...")
+    #download_url = parse_qs(urlparse(filename).query)["url"][0]
+    #zip_name = PurePosixPath(urlparse(download_url).path).name
+
+    #filename = get_file_location(zip_name)
 
     # ------------------------------------------------------------------
     # Build
@@ -34,37 +47,48 @@ def parse_rxnorm():
     names_by_rxcui = defaultdict(set)
     drugbank_by_rxcui = {}
 
-    with open(filename, "r", encoding="utf8") as f:
-        for line in tqdm(f, desc="Reading RXNCONSO.RRF"):
+    with ZipFile(filename) as zf:
 
-            cols = line.rstrip("\n").split("|")
+        # Locate RXNCONSO.RRF inside the archive
+        rxnconso = next(
+            name
+            for name in zf.namelist()
+            if name.endswith("RXNCONSO.RRF")
+        )
 
-            # Expected columns
-            #
-            # 0  RXCUI
-            # 11 SAB
-            # 12 TTY
-            # 13 CODE
-            # 14 STR
+        with zf.open(rxnconso) as raw:
+            f = TextIOWrapper(raw, encoding="utf-8")
 
-            if len(cols) < 15:
-                continue
+            for line in tqdm(f, desc="Reading RXNCONSO.RRF"):
 
-            rxcui = cols[0]
-            sab = cols[11]
-            tty = cols[12]
-            code = cols[13]
-            string = cols[14].strip()
+                cols = line.rstrip("\n").split("|")
 
-            if not string:
-                continue
+                # Expected columns
+                #
+                # 0  RXCUI
+                # 11 SAB
+                # 12 TTY
+                # 13 CODE
+                # 14 STR
 
-            if sab == "RXNORM":
-                if tty in MATCH_TTYS:
-                    names_by_rxcui[rxcui].add(string.lower())
+                if len(cols) < 15:
+                    continue
 
-            elif sab == "DRUGBANK":
-                drugbank_by_rxcui[rxcui] = f"drugbank.{code}"
+                rxcui = cols[0]
+                sab = cols[11]
+                tty = cols[12]
+                code = cols[13]
+                string = cols[14].strip()
+
+                if not string:
+                    continue
+
+                if sab == "RXNORM":
+                    if tty in MATCH_TTYS:
+                        names_by_rxcui[rxcui].add(string.lower())
+
+                elif sab == "DRUGBANK":
+                    drugbank_by_rxcui[rxcui] = f"drugbank.{code}"
 
     print(f"{len(names_by_rxcui):,} RXCUIs with names")
     print(f"{len(drugbank_by_rxcui):,} RXCUIs mapped to DrugBank")

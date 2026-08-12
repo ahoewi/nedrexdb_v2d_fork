@@ -42,7 +42,8 @@ from nedrexdb.db.parsers import (
     orphanet,
     opentargets,
     hippie,
-    faers
+    faers,
+    rxnorm
 )
 from nedrexdb.downloaders import get_versions, update_versions
 from nedrexdb.post_integration import (trim_uberon, drop_empty_collections)
@@ -193,12 +194,35 @@ def update(conf, download, rebuild, version_update, create_embeddings):
     # Determine ignored sources for minimal build
     ignored_sources = set()
     if os.environ.get("TEST_MINIMUM", 0) == '1':
-        ignored_sources = {
-            "go", "uberon", "clinvar", "hpo", "hpa", "reactome",
-            "bioontology", "unichem", "intact", "ncg", "intogen", "uniprot",
-            "opentargets", "orphanet", "ncbi", "ctd",
-            "disgenet", "hippie", "sider", "cosmic"
-        }
+        ignored_sources = {"chembl",
+                           "biogrid",
+                           "go",
+                           "uberon",
+                           "clinvar",
+                           "hpo",
+                           "hpa",
+                           "uniprot",
+                           "reactome",
+                           # "bioontology",
+                           # "drug_central",
+                           # "unichem",
+                           "repotrial",
+                           "iid",
+                           "intact",
+                           "omim",
+                           "ncg",
+                           "intogen",
+                           "opentargets",
+                           "orphanet",
+                           # "ncbi",
+                           # "drugbank",
+                           "ctd",
+                           "disgenet",
+                           "hippie",
+                           # "sider",
+                           "cosmic",
+                           "faers"
+                           }
 
     # Initialize Embedding Controller
     dev_instance = NeDRexDevInstance()
@@ -323,6 +347,9 @@ def run_parsers(version, ignored_sources, hippie_method_scores=None):
     if "sider" not in ignored_sources:
         sider.parse()
 
+    if "rxnorm" not in ignored_sources:
+        rxnorm.parse_rxnorm()
+
     if "faers" not in ignored_sources:
         faers.parse_faers()
 
@@ -349,103 +376,6 @@ def save_fallback_version(version, fallback_path="/data/nedrex_files/nedrex_data
             f.write(str(version))
     except:
         logger.info("No fallback version file found. Initial setup?")
-
-
-def parse_dev(version, download, rebuild, version_update, prev_metadata,
-              distinct_per_collection, dev_instance, create_embeddings):
-    # control source downloads - but be aware of dependencies!
-    ignored_sources = {"chembl",
-                       "biogrid",
-                       "go",
-                       "uberon",
-                       "clinvar",
-                       "hpo",
-                       "hpa",
-                       "uniprot",
-                       "reactome",
-                       #"bioontology",
-                       #"drug_central",
-                       #"unichem",
-                       "repotrial",
-                       "iid",
-                       "intact",
-                       "omim",
-                       "ncg",
-                       "intogen",
-                       "opentargets",
-                       "orphanet",
-                       #"ncbi",
-                       #"drugbank",
-                       "ctd",
-                       "disgenet",
-                       "hippie",
-                       #"sider",
-                       "cosmic",
-                       "faers"
-                       }
-    nedrex_versions = None
-    no_download = None
-    embeddings = None
-    tobuild_embeddings = None
-    current_metadata = None
-    if download or rebuild:
-        # fallback version is rarely needed. Do not change that file, only use the config!
-        default_version = get_fallback_version()
-        nedrex_versions = update_versions(ignored_sources=ignored_sources, default_version=default_version)
-        save_fallback_version(f"{nedrex_versions['version']}")
-
-        # do the download
-        logger.debug("Download: ON")
-        current_metadata = nedrex_versions["source_databases"]
-        # already up-to-date data
-        no_download = [key for key in prev_metadata if key in current_metadata and
-                       prev_metadata[key]['version'] == current_metadata[key]['version']]
-        if rebuild:
-            no_download = []
-            logger.info(
-                f"Skipping download for: {no_download} because of rebuild flag. This can be disabled by setting FORCE_REBUILD=0")
-        
-        static_download = [key for key in ["bioontology", "drugbank", "disgenet", "repotrial",
-                                           "hippie", "sider", "cosmic", "intogen", "ncg"] if key not in no_download and
-                           key not in ignored_sources]
-
-        loglevel_info_or_debug = os.environ.get("LOG_LEVEL", "INFO") in ["DEBUG", "INFO"]
-        if static_download:
-            logger.info("Starting dump downloads")
-            subprocess.run(["./setup_data.sh", "/data/nedrex_files", "1" if loglevel_info_or_debug else "0"])
-        downloaders.download_all(ignored_sources=ignored_sources,
-                                 no_download_meta=no_download)
-    if version_update:
-        nedrex_versions = get_versions(version_update)
-
-    if create_embeddings:
-        embeddings, tobuild_embeddings = manage_embeddings(dev_instance=dev_instance,
-                                                           distinct_per_collection=distinct_per_collection,
-                                                           rebuild=rebuild)
-
-    # prepare neo4j for import from mongoDB
-    dev_instance.remove(neo4j_mode="import")
-    dev_instance.set_up(use_existing_volume=False, neo4j_mode="import")
-
-    # MongoDB data download & import
-    MongoInstance.connect("dev")
-    MongoInstance.set_indexes()
-
-    MongoInstance.DB["metadata"].replace_one({}, nedrex_versions, upsert=True)
-
-    # Run parser pipeline
-    run_parsers(
-        version=version,
-        ignored_sources=ignored_sources
-    )
-
-    for src in ignored_sources:
-        col = src.replace("-", "_")
-        if col in MongoInstance.DB.list_collection_names():
-            logger.info(f"Minimal Build: Dropping collection for ignored source: {col}")
-            MongoInstance.DB[col].drop()
-
-    return embeddings, tobuild_embeddings, no_download, current_metadata
 
 
 @click.option("--conf", required=True, type=click.Path(exists=True))

@@ -10,7 +10,7 @@ def download_rxnorm():
     # zwischenzeitlich:
     from nedrexdb.downloaders.helper import rxnorm_api_key
     api_key = rxnorm_api_key
-    url = _config["sources.rxnorm.url"].format(api_key)
+    url = _config["sources.rxnorm.full.url"].format(api_key)
 
     rxnorm_dir = _Path(_config.get("db.root_directory")) / _config.get("sources.directory") / "rxnorm"
     rxnorm_dir.mkdir(exist_ok=True, parents=True)

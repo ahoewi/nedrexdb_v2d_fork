@@ -95,7 +95,8 @@ class _Config:
                                                 'neo4j_http_port': 7478 if vt == "licensed" else 6478,
                                                 'neo4j_bolt_port': 7688 if vt == "licensed" else 6688,
                                                 'neo4j_name': f'{vt}_nedrex_dev_neo4j',
-                                                'neo4j_memory_max': '8G',
+                                                'neo4j_memory_max': '16G',
+                                                'neo4j_pagecache_max': '16G',
                                                 'container_name': f'{vt}_nedrex_dev',
                                                 'express_container_name': f'{vt}_nedrex_dev_express'},
                                         'live': {'mongo_port': 27018 if vt == "licensed" else 26018,
@@ -106,7 +107,8 @@ class _Config:
                                                  'neo4j_bolt_port': 7689 if vt == "licensed" else 6689,
                                                  'neo4j_bolt_port_internal': 7687,
                                                  'neo4j_name': f'{vt}_nedrex_live_neo4j',
-                                                 'neo4j_memory_max': '8G',
+                                                 'neo4j_memory_max': '16G',
+                                                 'neo4j_pagecache_max': '16G',
                                                  'container_name': f'{vt}_nedrex_live',
                                                  'express_container_name': f'{vt}_nedrex_live_express'}}}
 
