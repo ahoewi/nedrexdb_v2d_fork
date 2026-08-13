@@ -6,10 +6,7 @@ from nedrexdb import config as _config
 from nedrexdb.logger import logger
 
 def download_rxnorm():
-    #api_key = _config["sources.rxnorm.api_key"]
-    # zwischenzeitlich:
-    from nedrexdb.downloaders.helper import rxnorm_api_key
-    api_key = rxnorm_api_key
+    api_key = _config["sources.rxnorm.api_key"]
     url = _config["sources.rxnorm.full.url"].format(api_key)
 
     rxnorm_dir = _Path(_config.get("db.root_directory")) / _config.get("sources.directory") / "rxnorm"

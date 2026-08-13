@@ -1,46 +1,42 @@
 from collections import defaultdict
-from itertools import chain
-
-from more_itertools import chunked
-from tqdm import tqdm
-
-from nedrexdb.db import MongoInstance
-from nedrexdb.db.parsers import _get_file_location_factory
-from nedrexdb.db.models.nodes.drug import Drug
-from nedrexdb.logger import logger
-from pathlib import PurePosixPath
-from urllib.parse import parse_qs, urlparse
 from io import TextIOWrapper
 from zipfile import ZipFile
 
+from more_itertools import chunked
+from pymongo import UpdateOne
+from tqdm import tqdm
+
+from nedrexdb.db import MongoInstance
+from nedrexdb.db.models.nodes.drug import Drug
+from nedrexdb.db.parsers import _get_file_location_factory
+from nedrexdb.logger import logger
+
+
 get_file_location = _get_file_location_factory("rxnorm")
 
-# TTYs that should participate in matching
+
+# RxNorm term types that should be used as drug names.
 MATCH_TTYS = {
-    "IN",
-    "PIN",
-    "BN",
-    "SY",
+    "IN",   # Ingredient
+    "PIN",  # Precise Ingredient
+    "BN",   # Brand Name
+    "SY",   # Synonym
 }
 
 
 def parse_rxnorm():
     filename = get_file_location("full")
 
-    # Remove "&apiKey={}" suffix if present
+    # Remove "&apiKey={}" suffix if present.
     filename = filename.with_name(filename.name.split("&")[0])
 
     logger.debug(f"RxNorm filename: {filename}")
     logger.info("Parsing RxNorm...")
-    #download_url = parse_qs(urlparse(filename).query)["url"][0]
-    #zip_name = PurePosixPath(urlparse(download_url).path).name
-
-    #filename = get_file_location(zip_name)
 
     # ------------------------------------------------------------------
-    # Build
+    # Build:
     #
-    # RXCUI -> set(names)
+    # RXCUI -> set(RxNorm names)
     # RXCUI -> DrugBank ID
     # ------------------------------------------------------------------
 
@@ -49,68 +45,93 @@ def parse_rxnorm():
 
     with ZipFile(filename) as zf:
 
-        # Locate RXNCONSO.RRF inside the archive
+        # Locate RXNCONSO.RRF inside the archive.
         rxnconso = next(
             name
             for name in zf.namelist()
             if name.endswith("RXNCONSO.RRF")
         )
 
+        logger.debug(f"Using {rxnconso} from RxNorm archive")
+
         with zf.open(rxnconso) as raw:
-            f = TextIOWrapper(raw, encoding="utf-8")
+            with TextIOWrapper(raw, encoding="utf-8") as f:
 
-            for line in tqdm(f, desc="Reading RXNCONSO.RRF"):
+                for line in tqdm(
+                    f,
+                    desc="Reading RXNCONSO.RRF",
+                ):
+                    cols = line.rstrip("\n").split("|")
 
-                cols = line.rstrip("\n").split("|")
+                    # RXNCONSO.RRF columns:
+                    #
+                    # 0  RXCUI
+                    # ...
+                    # 11 SAB
+                    # 12 TTY
+                    # 13 CODE
+                    # 14 STR
 
-                # Expected columns
-                #
-                # 0  RXCUI
-                # 11 SAB
-                # 12 TTY
-                # 13 CODE
-                # 14 STR
+                    if len(cols) < 15:
+                        continue
 
-                if len(cols) < 15:
-                    continue
+                    rxcui = cols[0]
+                    sab = cols[11]
+                    tty = cols[12]
+                    code = cols[13]
+                    string = cols[14].strip()
 
-                rxcui = cols[0]
-                sab = cols[11]
-                tty = cols[12]
-                code = cols[13]
-                string = cols[14].strip()
+                    if not string:
+                        continue
 
-                if not string:
-                    continue
+                    # --------------------------------------------------
+                    # RxNorm vocabulary
+                    # --------------------------------------------------
 
-                if sab == "RXNORM":
-                    if tty in MATCH_TTYS:
-                        names_by_rxcui[rxcui].add(string.lower())
+                    if sab == "RXNORM" and tty in MATCH_TTYS:
+                        names_by_rxcui[rxcui].add(string)
 
-                elif sab == "DRUGBANK":
-                    drugbank_by_rxcui[rxcui] = f"drugbank.{code}"
+                    # --------------------------------------------------
+                    # DrugBank vocabulary
+                    #
+                    # RxNorm contains DrugBank cross-references where
+                    # CODE is the DrugBank identifier.
+                    # --------------------------------------------------
 
-    print(f"{len(names_by_rxcui):,} RXCUIs with names")
-    print(f"{len(drugbank_by_rxcui):,} RXCUIs mapped to DrugBank")
+                    elif sab == "DRUGBANK":
+                        drugbank_by_rxcui[rxcui] = f"drugbank.{code}"
+
+    logger.info(
+        f"{len(names_by_rxcui):,} RXCUIs with names"
+    )
+
+    logger.info(
+        f"{len(drugbank_by_rxcui):,} RXCUIs mapped to DrugBank"
+    )
 
     # ------------------------------------------------------------------
-    # Build
+    # Build:
     #
-    # DrugBank ID -> RxNorm names
+    # DrugBank ID -> set(all RxNorm names)
     # ------------------------------------------------------------------
 
     names_by_drugbank = defaultdict(set)
 
-    for rxcui, dbid in drugbank_by_rxcui.items():
-        if rxcui not in names_by_rxcui:
+    for rxcui, drugbank_id in drugbank_by_rxcui.items():
+
+        names = names_by_rxcui.get(rxcui)
+
+        if not names:
             continue
 
-        names_by_drugbank[dbid].update(names_by_rxcui[rxcui])
+        names_by_drugbank[drugbank_id].update(names)
 
-    print(f"{len(names_by_drugbank):,} DrugBank drugs enriched")
+    logger.info(
+        f"{len(names_by_drugbank):,} DrugBank drugs enriched"
+    )
 
     # ------------------------------------------------------------------
-    # Load existing drugs
+    # Load existing Drug nodes.
     # ------------------------------------------------------------------
 
     drugs = {
@@ -118,31 +139,50 @@ def parse_rxnorm():
         for drug in Drug.find(MongoInstance.DB)
     }
 
+    # ------------------------------------------------------------------
+    # Create MongoDB updates.
+    #
+    # IMPORTANT:
+    #
+    # rxnormNames intentionally contains ALL matched RxNorm names.
+    # We do NOT remove names that also occur in displayName/synonyms.
+    #
+    # This field represents the RxNorm vocabulary independently and
+    # will later be used for FAERS name matching.
+    # ------------------------------------------------------------------
+
     updates = []
 
-    for dbid, rxnames in tqdm(
+    for drugbank_id, rxnames in tqdm(
         names_by_drugbank.items(),
         desc="Updating drugs",
     ):
-
-        if dbid not in drugs:
+        if drugbank_id not in drugs:
             continue
 
-        drug = Drug.parse_obj(drugs[dbid])
+        # Sort for deterministic database output.
+        rxnames = sorted(rxnames)
 
-        existing = {drug.displayName.lower()}
-        existing.update(s.lower() for s in drug.synonyms)
+        updates.append(
+            UpdateOne(
+                {"primaryDomainId": drugbank_id},
+                {
+                    "$set": {
+                        "rxnormNames": rxnames,
+                    }
+                },
+            )
+        )
 
-        # keep only genuinely new names
-        rxnames = sorted(rxnames - existing)
+    logger.info(
+        f"{len(updates):,} drugs will be updated"
+    )
 
-        drug.rxnormNames = rxnames
-
-        updates.append(drug.generate_update())
-
-    print(f"{len(updates):,} drugs will be updated")
+    # ------------------------------------------------------------------
+    # Write updates.
+    # ------------------------------------------------------------------
 
     for chunk in chunked(updates, 1000):
         MongoInstance.DB[Drug.collection_name].bulk_write(chunk)
 
-    print("Finished RxNorm.")
+    logger.info("Finished RxNorm.")
